@@ -47,10 +47,11 @@ object MainApp extends App {
     scannerActor,
     "scan")
 
-  // Wait for message processing and shutdown
+  /* Wait for message processing and shutdown
   // (not needed in normal application)
   java.lang.Thread.sleep(5000)
   system.shutdown()
+  */
 }
 
 class Settings(config: Config) {

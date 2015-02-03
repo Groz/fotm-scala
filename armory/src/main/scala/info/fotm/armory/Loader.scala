@@ -62,6 +62,7 @@ class Loader[L <: Locale](apiKey: String, region: Region[L], localeOption: Optio
         .rows
         .sortBy(r => (-r.rating, r.name, r.realmId)) // avoid considering shuffled duplicates as different retrievals
         .zipWithIndex.map { case (raw, idx) => toEntry(raw, idx) }
+      println(rows)
       Leaderboard(rows, bracket)
     }
 }
