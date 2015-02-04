@@ -26,11 +26,37 @@ object SimApp extends App {
 
   type Standings = Map[CharacterInfo, CharacterStats]
 
-  def history(bracket: Bracket, length: Int): Stream[(Seq[Team], Leaderboard)] = {
+  def change(standings: Standings, char: CharacterInfo, rating: Int): Standings = {
+    val stats = standings(char)
+
+    val newStats = CharacterStats(stats.rating + rating,
+      stats.wins + (if (rating > 0) 1 else 0),
+      stats.losses + (if (rating < 0) 1 else 0))
+
+    standings.updated(char, newStats)
+  }
+
+  def calcRatingChange(winnerRating: Double, loserRating: Double): Int = {
+    val chance = 1.0 / (1.0 + Math.pow(10, (loserRating - winnerRating)/400.0))
+    val k = 32
+    Math.round(k * (1 - chance)).toInt
+  }
+
+  def updateStandings(standings: Standings, playingTeams: Seq[Team]): Standings = {
+    val (teamA, teamB) = (playingTeams(0), playingTeams(1))
+
+    def teamRating(team: Team): Double = team.chars.map(standings(_).rating).sum.toDouble / team.chars.size
+    val ratingChange = calcRatingChange(teamRating(teamA), teamRating(teamB))
+
+    val afterA = teamA.chars.foldLeft(standings) { change(_, _, ratingChange) }
+    val afterB = teamB.chars.foldLeft(afterA) { change(_, _, -ratingChange) }
+    afterB
+  }
+
+  def history(bracket: Bracket, length: Int): Stream[(Set[Team], Leaderboard)] = {
     val maxLength = 1000
     val nGamesPerTurn = 100
     val nTeams = maxLength / bracket.size
-    val ladderLength = nTeams * bracket.size
 
     val allTeams: IndexedSeq[Team] = (0 until nTeams).map(_ => createRandomTeam(bracket))
     val allChars: IndexedSeq[CharacterInfo] = allTeams.flatMap(_.chars)
@@ -47,41 +73,13 @@ object SimApp extends App {
       Leaderboard(rows, bracket)
     }
 
-    def play(previous: Standings): (Seq[Team], Standings) = {
-
-      val teams: IndexedSeq[Team] = rng.shuffle(allTeams).take(nGamesPerTurn * 2)
-
-      def change(standings: Standings, char: CharacterInfo, rating: Int): Standings = {
-        val stats = standings(char)
-
-        val newStats = CharacterStats(stats.rating + rating,
-          stats.wins + (if (rating > 0) 1 else 0),
-          stats.losses + (if (rating < 0) 1 else 0))
-
-        standings.updated(char, newStats)
-      }
-
-      val newStandings = teams.sliding(2, 2).foldLeft(previous) {
-        (standings, playingTeams) => {
-          val (teamA, teamB) = (playingTeams(0), playingTeams(1))
-
-          def teamRating(team: Team): Double = team.chars.map(standings(_).rating).sum.toDouble / bracket.size
-          val (ratingA, ratingB) = (teamRating(teamA), teamRating(teamB))
-          def chance(left: Double, right: Double) = 1.0 / (1.0 + Math.pow(10, (right - left)/400.0))
-          val (chanceA, chanceB) = (chance(ratingA, ratingB), chance(ratingB, ratingA))
-          val k = 32
-          val (ratingChangeA, ratingChangeB) = (k * (1 - chanceA), k * (1 - chanceB))
-
-          val afterA = teamA.chars.foldLeft(standings) { change(_, _, ratingChangeA.toInt) }
-          val afterB = teamB.chars.foldLeft(afterA) { change(_, _, -ratingChangeB.toInt) }
-          afterB
-        }
-      }
-
-      (teams, newStandings)
+    def play(previous: Standings): (Set[Team], Standings) = {
+      val teams = rng.shuffle(allTeams).take(nGamesPerTurn * 2)
+      val newStandings = teams.sliding(2, 2).foldLeft(previous) { updateStandings }
+      (teams.toSet, newStandings)
     }
 
-    def genHistory(previous: Standings, length: Int): Stream[(Seq[Team], Leaderboard)] = {
+    def genHistory(previous: Standings, length: Int): Stream[(Set[Team], Leaderboard)] = {
       val (currentTeams, currentStandings) = play(previous)
       val currentLeaderboard = toLeaderboard(currentStandings)
 
@@ -94,6 +92,28 @@ object SimApp extends App {
     genHistory(initialStandings, length)
   }
 
+  def evaluateStrategy(bracket: Bracket,
+                       history: Stream[(Set[Team], Leaderboard)],
+                      strategy: (Leaderboard, Leaderboard) => Set[Team]) = {
+
+    history.sliding(2).foldLeft(0, 0) { (acc, st) =>
+      val (previous, current) = (st.head, st.last)
+      val prediction = strategy(previous._2, current._2)
+      val actual = current._1
+      val guessed = prediction.intersect(actual)
+      (acc._1 + guessed.size, acc._2 + actual.size)
+    }
+
+  }
+
+  def pickRandom(l1: Leaderboard, l2: Leaderboard): Set[Team] = {
+    val m1: Map[CharacterInfo, LeaderboardRow] = l1.rows.map(row => (row.characterInfo, row)).toMap
+    val m2: Map[CharacterInfo, LeaderboardRow] = l2.rows.map(row => (row.characterInfo, row)).toMap
+
+    Set()
+  }
+
   val h = history(Threes, 100)
-  println(h.last._2)
+  val (guessed, total) = evaluateStrategy(Threes, h, pickRandom)
+  println(guessed, total)
 }
