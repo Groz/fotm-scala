@@ -6,10 +6,13 @@ import scala.util.Random
 
 object SimApp extends App {
 
-  val rng = new Random(1337)
-  val fakeRealm = Realm(10, "Fake Realm", "fakerealm")
+  lazy val rng = new Random(1337)
+  lazy val fakeRealm = Realm(10, "Fake Realm", "fakerealm")
 
-  def randomElement[T](set: Set[T]): T = set.toVector(rng.nextInt(set.size))
+  def randomElement[T](set: Set[T]): T = {
+    val idx = rng.nextInt(set.size)
+    set.toVector(idx)
+  }
 
   def createRandomCharacter: CharacterInfo = {
     val charClass = randomElement(Characters.all)
@@ -48,9 +51,7 @@ object SimApp extends App {
     Math.round(k * (1 - chance)).toInt
   }
 
-  def updateStandings(standings: Standings, playingTeams: Seq[Team]): Standings = {
-    val (teamA, teamB) = (playingTeams(0), playingTeams(1))
-
+  def updateStandings(standings: Standings, teamA: Team, teamB: Team): Standings = {
     def teamRating(team: Team): Double = team.chars.map(standings(_).rating).sum.toDouble / team.chars.size
     val ratingChange = calcRatingChange(teamRating(teamA), teamRating(teamB))
 
@@ -81,7 +82,11 @@ object SimApp extends App {
 
     def play(previous: Standings): (Set[Team], Standings) = {
       val teams = rng.shuffle(allTeams).take(nGamesPerTurn * 2)
-      val newStandings = teams.sliding(2, 2).foldLeft(previous) { updateStandings }
+
+      val newStandings = teams.sliding(2, 2).foldLeft(previous) {
+        (s, teams) => updateStandings(s, teams(0), teams(1))
+      }
+
       (teams.toSet, newStandings)
     }
 
@@ -160,7 +165,9 @@ object SimApp extends App {
     (loserTeams ++ winnerTeams).toSet
   }
 
-  val h = history(Twos, 100)
-  val score = evaluateStrategy(Threes, h, pickRandom)
-  println(score)
+  def run() = {
+    val h = history(Twos, 100)
+    val score = evaluateStrategy(Threes, h, pickRandom)
+    println(score)
+  }
 }
