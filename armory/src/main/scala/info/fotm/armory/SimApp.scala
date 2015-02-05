@@ -9,10 +9,8 @@ object SimApp extends App {
   lazy val rng = new Random(1337)
   lazy val fakeRealm = Realm(10, "Fake Realm", "fakerealm")
 
-  def randomElement[T](set: Set[T]): T = {
-    val idx = rng.nextInt(set.size)
-    set.toVector(idx)
-  }
+  def randomElement[T](v: Vector[T]): T = v(rng.nextInt(v.size))
+  def randomElement[T](i: Iterable[T]): T = randomElement(i.toVector)
 
   def createRandomCharacter: CharacterInfo = {
     val charClass = randomElement(Characters.all)
@@ -24,8 +22,8 @@ object SimApp extends App {
   case class Team(bracket: Bracket, chars: List[CharacterInfo])
 
   object Team {
-    def apply(bracket: Bracket, chars: Seq[CharacterInfo]): Team =
-      Team(bracket, chars.sortBy(ci => (ci.name, ci.realm.realmSlug)).toList)
+    def apply(bracket: Bracket, chars: Iterable[CharacterInfo]): Team =
+      Team(bracket, chars.toSeq.sortBy(ci => (ci.name, ci.realm.realmSlug)).toList)
   }
 
   case class CharacterStats(rating: Int, wins: Int, losses: Int)
@@ -147,27 +145,73 @@ object SimApp extends App {
     changed.toList
   }
 
-  def pickRandom(previousLeaderboard: Leaderboard, currentLeaderboard: Leaderboard): Set[Team] = {
-    val diffs: List[(LeaderboardRow, LeaderboardRow)] = diff(previousLeaderboard, currentLeaderboard)
+  type Diff = (LeaderboardRow, LeaderboardRow) // previous, current
+
+  def bucket(diffs: Seq[Diff]): Set[Set[Diff]] = {
     val (losers, winners) = diffs.partition { case (prev, curr) => prev.rating < curr.rating }
+    val (allianceL, hordeL) = losers.partition { case (prev, curr) => curr.characterInfo.faction == Alliance }
+    val (allianceW, hordeW) = winners.partition { case (prev, curr) => curr.characterInfo.faction == Alliance }
+    Seq(allianceL, hordeL, allianceW, hordeW).map(_.toSet).toSet
+  }
+
+  def pickRandom(previousLeaderboard: Leaderboard, currentLeaderboard: Leaderboard): Set[Team] = {
+    val diffs = diff(previousLeaderboard, currentLeaderboard)
+    val buckets = bucket(diffs)
     val bracket = previousLeaderboard.bracket
 
-    val loserTeams = rng
-      .shuffle(losers)
-      .sliding(bracket.size, bracket.size)
-      .map(p => Team(bracket, p.map(_._2.characterInfo)))
-
-    val winnerTeams = rng
-      .shuffle(winners)
-      .sliding(bracket.size, bracket.size)
-      .map(p => Team(bracket, p.map(_._2.characterInfo)))
-
-    (loserTeams ++ winnerTeams).toSet
+    for {
+      bucket: Set[Diff] <- buckets
+      shuffled = rng.shuffle(bucket.toList)
+      teams = shuffled.sliding(bracket.size, bracket.size)
+      team: Seq[Diff] <- teams
+      chars = team.map { case (prev, curr) => curr.characterInfo }
+    } yield Team(bracket, chars)
   }
 
-  def run() = {
-    val h = history(Twos, 100)
-    val score = evaluateStrategy(Threes, h, pickRandom)
-    println(score)
+  def sqrDist(v1: Vector[Double], v2: Vector[Double]): Double =
+    v1.zip(v2).map { case (l, r) => (l-r) * (l-r) }.sum
+
+  def groupPopular(matrix: Map[CharacterInfo, Vector[Double]], bracket: Bracket): Set[Team] = {
+    val size = bracket.size
+    val entries: Set[(CharacterInfo, Vector[Double])] = rng.shuffle(matrix.toSet)
+
+    val (_, resultTeams) = (0 until entries.size by size).foldLeft(entries, Set[Team]()) { (acc, i) =>
+      val (entriesLeft, teams) = acc
+      val p = randomElement(entriesLeft)
+      val leftThisTurn = (0 until size-1).foldLeft(entriesLeft - p) { (left, j) =>
+        val closest = left.minBy { case (charInfo, v) => sqrDist(p._2, v) }
+        left - closest
+      }
+      val teamEntries: Set[(CharacterInfo, Vector[Double])] = entriesLeft -- leftThisTurn
+      val team = Team(bracket, teamEntries.map(_._1))
+      (leftThisTurn, teams + team)
+    }
+
+    resultTeams
   }
+
+  def pickPopular(previousLeaderboard: Leaderboard, currentLeaderboard: Leaderboard): Set[Team] = {
+    def metric(prevRow: LeaderboardRow, row: LeaderboardRow): Vector[Double] =
+      Vector(row.rating,
+        row.seasonWins, row.seasonLosses,
+        row.weeklyWins, row.weeklyLosses,
+        row.rating - prevRow.rating,
+        (row.rating - prevRow.rating).toDouble / row.rating)
+
+    val diffs = diff(previousLeaderboard, currentLeaderboard)
+    val buckets = bucket(diffs)
+    val bracket = previousLeaderboard.bracket
+
+    for {
+      bucket: Set[Diff] <- buckets if bucket.size > 0
+      matrix: Map[CharacterInfo, Vector[Double]] = bucket.map { case (prev, curr) =>
+        (curr.characterInfo, metric(prev, curr))
+      }.toMap
+      groups: Set[Team] = groupPopular(matrix, bracket)
+      team <- groups
+    } yield team
+  }
+  val h = history(Threes, 50)
+  val score = evaluateStrategy(Threes, h, pickPopular)
+  println(score)
 }
