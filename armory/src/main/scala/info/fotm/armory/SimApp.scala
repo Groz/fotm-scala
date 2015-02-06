@@ -65,7 +65,7 @@ object SimApp extends App with RandomExtensions {
   }
 
   object TeamInfo {
-    def apply(team: Team): TeamInfo = TeamInfo(team, 3 + rng.nextInt(12))
+    def apply(team: Team): TeamInfo = TeamInfo(team, 3 + rng.nextInt(10))
   }
 
 
@@ -197,9 +197,9 @@ object SimApp extends App with RandomExtensions {
     } yield team
   }
 
-  val predictor = new PopularityPredictor()
+  val predictor = new VerifyingPredictor(2, new PopularityPredictor())
 //  val predictor = new RandomPredictor(rng)
-  val score = evaluateStrategy(Fives, 50, predictor)
+  val score = evaluateStrategy(Twos, 50, predictor)
   println(score)
 }
 
