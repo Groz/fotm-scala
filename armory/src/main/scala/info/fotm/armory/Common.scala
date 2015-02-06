@@ -6,8 +6,11 @@ import scala.util.Random
 
 object Common {
   type Diff = (LeaderboardRow, LeaderboardRow) // previous, current
+}
 
-  lazy val rng = new Random(1337)
+trait RandomExtensions {
+  val seed: Int
+  lazy val rng = new Random(seed)
   def randomElement[T](v: Vector[T]): T = v(rng.nextInt(v.size))
   def randomElement[T](i: Iterable[T]): T = randomElement(i.toVector)
 }

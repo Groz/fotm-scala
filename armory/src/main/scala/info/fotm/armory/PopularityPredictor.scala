@@ -3,7 +3,9 @@ package info.fotm.armory
 import info.fotm.armory.models._
 import Common._
 
-class PopularityPredictor extends TeamPredictor {
+class PopularityPredictor extends TeamPredictor with RandomExtensions {
+  val seed = 1337
+
   override def apply(bracket: Bracket, diffs: Set[Diff]): Set[Team] = {
     val matrix: Map[CharacterInfo, Vector[Double]] = diffs.map { case (prev, curr) =>
       (curr.characterInfo, metric(prev, curr))
@@ -26,14 +28,14 @@ class PopularityPredictor extends TeamPredictor {
       val (_, resultTeams) = (0 until entries.size by size).foldLeft(entries, Set[Team]()) { (acc, i) =>
         val (entriesLeft, teams) = acc
         val p = randomElement(entriesLeft)
-        val (leftThisTurn, teamEntries) = (0 until size-1).foldLeft(entriesLeft - p, Set(p)) { (acc, j) =>
+        val (leftThisTurn, currentTeam) = (0 until size-1).foldLeft(entriesLeft - p, Set(p)) { (acc, j) =>
           val (left, team) = acc
           val closest = left.minBy { case (charInfo, v) =>
             team.map(alreadyIn => Metrics.sqrDist(alreadyIn._2, v)).sum
           }
           (left - closest, team + closest)
         }
-        val team = Team(bracket, teamEntries.map(_._1))
+        val team = Team(bracket, currentTeam.map(_._1))
         (leftThisTurn, teams + team)
       }
 
@@ -54,7 +56,6 @@ class PopularityPredictor extends TeamPredictor {
       }
       .take(entries.size / size)
       .map { case (team, count) =>
-      //println(s"Team popularity: $count")
       team
     }.toSet
   }
