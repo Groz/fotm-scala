@@ -132,12 +132,11 @@ object SimApp extends App {
                        history: Stream[(Set[Team], Leaderboard)],
                       strategy: (Leaderboard, Leaderboard) => Set[Team]): Double = {
 
-    val (guessed, predicted, total) = history.sliding(2).foldLeft(0, 0, 0) { (acc, st) =>
-      val (previous, current) = (st.head, st.last)
-      val actual = current._1
-      val prediction = strategy(previous._2, current._2) ++ actual
-      val guessed = prediction.intersect(actual)
-      (acc._1 + guessed.size, acc._2 + prediction.size, acc._3 + actual.size)
+    val (guessed, predicted, total) = history.sliding(2).foldLeft(0, 0, 0) { (acc, states) =>
+      val ((_, prevLeaderboard), (teamsPlayed, currentLeaderboard)) = (states.head, states.last)
+      val prediction = strategy(prevLeaderboard, currentLeaderboard)
+      val guessed = prediction.intersect(teamsPlayed)
+      (acc._1 + guessed.size, acc._2 + prediction.size, acc._3 + teamsPlayed.size)
     }
 
     val p = guessed.toDouble / predicted
