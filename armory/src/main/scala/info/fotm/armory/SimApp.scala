@@ -63,8 +63,8 @@ object SimApp extends App {
     val nGamesPerTurn = 100
     val nTeams = maxLength / bracket.size
 
-    val allTeams: IndexedSeq[Team] = (0 until nTeams).map(_ => createRandomTeam(bracket))
-    val allChars: IndexedSeq[CharacterInfo] = allTeams.flatMap(_.chars)
+    val allTeams: Set[Team] = (0 until nTeams).map(_ => createRandomTeam(bracket)).toSet
+    val allChars: Set[CharacterInfo] = allTeams.flatMap(_.chars)
     val initialStandings: Standings = allChars.map { (_, CharacterStats(1500, 0, 0)) }.toMap
 
     def toLeaderboard(standings: Standings) = {
@@ -79,26 +79,43 @@ object SimApp extends App {
     }
 
     def play(previous: Standings): (Set[Team], Standings) = {
-      val teams = rng.shuffle(allTeams).take(nGamesPerTurn * 2)
+      val teamsToPlay = rng.shuffle(allTeams.toVector).take(nGamesPerTurn * 2)
+      val substitutes: Vector[CharacterInfo] = rng.shuffle((allTeams -- teamsToPlay).flatMap(t => t.chars).toVector)
+      val jumpRatio = 0.1
 
-      val newStandings = teams.sliding(2, 2).foldLeft(previous) {
-        (s, teams) => updateStandings(s, teams(0), teams(1))
+      var i = -1
+
+      val teamsPlayed = for {
+        t <- teamsToPlay
+        players = t.chars.map(
+          if (rng.nextDouble() > jumpRatio) _
+          else {
+            i += 1
+            substitutes(i)
+          })
+      } yield Team(bracket, players)
+
+      //println("TO PLAY:", teamsToPlay.intersect(teamsPlayed).size)
+
+      val newStandings = teamsPlayed.sliding(2, 2).foldLeft(previous) { (s, teams) =>
+        updateStandings(s, teams.head, teams.last)
       }
 
-      (teams.toSet, newStandings)
+      (teamsPlayed.toSet, newStandings)
     }
 
-    def genHistory(previous: Standings, length: Int): Stream[(Set[Team], Leaderboard)] = {
+    var i = 0
+
+    def genHistory(previous: Standings): Stream[(Set[Team], Standings)] = {
       val (currentTeams, currentStandings) = play(previous)
-      val currentLeaderboard = toLeaderboard(currentStandings)
-
-      if (length == 0)
-        Stream( (currentTeams, currentLeaderboard) )
-      else
-        (currentTeams, currentLeaderboard) #:: genHistory(currentStandings, length - 1)
+      i += 1; println(i)
+      (currentTeams, currentStandings) #:: genHistory(currentStandings)
     }
 
-    genHistory(initialStandings, length)
+    println("Preparing history data...")
+    val (_, currentStandings) = genHistory(initialStandings).take(50).last
+    println("Data ready.")
+    genHistory(currentStandings).map { case(teams, standings) => (teams, toLeaderboard(standings)) }.take(length)
   }
 
   def fScore(p: Double, r: Double, beta: Double): Double = {
@@ -127,6 +144,11 @@ object SimApp extends App {
     val r = guessed.toDouble / total
     fScore(p, r, 0.5)
   }
+
+  def evaluateStrategy(bracket: Bracket,
+                       historyLength: Int,
+                       strategy: (Leaderboard, Leaderboard) => Set[Team]): Double =
+    evaluateStrategy(bracket, history(bracket, historyLength), strategy)
 
   def diff(previousLeaderboard: Leaderboard, currentLeaderboard: Leaderboard)
     : List[(LeaderboardRow, LeaderboardRow)] = {
@@ -211,7 +233,7 @@ object SimApp extends App {
       team <- groups
     } yield team
   }
-  val h = history(Threes, 50)
-  val score = evaluateStrategy(Threes, h, pickPopular)
+
+  val score = evaluateStrategy(Threes, 50, pickPopular _)
   println(score)
 }
