@@ -1,16 +1,14 @@
 package info.fotm.armory
 
 import models._
-import scala.collection.immutable.IndexedSeq
 import scala.util.Random
+import info.fotm.armory.models.CharacterInfo
+import info.fotm.armory.models.{CharacterInfo, Bracket}
+import Common._
 
 object SimApp extends App {
 
-  lazy val rng = new Random(1337)
   lazy val fakeRealm = Realm(10, "Fake Realm", "fakerealm")
-
-  def randomElement[T](v: Vector[T]): T = v(rng.nextInt(v.size))
-  def randomElement[T](i: Iterable[T]): T = randomElement(i.toVector)
 
   def createRandomCharacter: CharacterInfo = {
     val charClass = randomElement(Characters.all)
@@ -19,17 +17,10 @@ object SimApp extends App {
     CharacterInfo("n"+rng.nextInt().hashCode(), fakeRealm, Alliance, charClass, race, gender)
   }
 
-  case class Team(bracket: Bracket, chars: List[CharacterInfo])
-
-  object Team {
-    def apply(bracket: Bracket, chars: Iterable[CharacterInfo]): Team =
-      Team(bracket, chars.toSeq.sortBy(ci => (ci.name, ci.realm.realmSlug)).toList)
-  }
-
   case class CharacterStats(rating: Int, wins: Int, losses: Int)
 
   def createRandomTeam(bracket: Bracket): Team =
-    Team(bracket, (0 until bracket.size).map(_ => createRandomCharacter))
+    Team(bracket, (0 until bracket.size).map(_ => createRandomCharacter).toSet)
 
   type Standings = Map[CharacterInfo, CharacterStats]
 
@@ -60,7 +51,7 @@ object SimApp extends App {
 
   def history(bracket: Bracket, length: Int): Stream[(Set[Team], Leaderboard)] = {
     val maxLength = 1000
-    val nGamesPerTurn = 100
+    val nGamesPerTurn = 10
     val nTeams = maxLength / bracket.size
 
     val allTeams: Set[Team] = (0 until nTeams).map(_ => createRandomTeam(bracket)).toSet
@@ -95,11 +86,11 @@ object SimApp extends App {
           })
       } yield Team(bracket, players)
 
-      //println("TO PLAY:", teamsToPlay.intersect(teamsPlayed).size)
-
       val newStandings = teamsPlayed.sliding(2, 2).foldLeft(previous) { (s, teams) =>
         updateStandings(s, teams.head, teams.last)
       }
+
+      //println(s"Played: ${teamsPlayed.intersect(teamsToPlay).size} / ${teamsPlayed.size}")
 
       (teamsPlayed.toSet, newStandings)
     }
@@ -108,7 +99,7 @@ object SimApp extends App {
 
     def genHistory(previous: Standings): Stream[(Set[Team], Standings)] = {
       val (currentTeams, currentStandings) = play(previous)
-      i += 1; println(i)
+      i += 1; println(s"History step: $i")
       (currentTeams, currentStandings) #:: genHistory(currentStandings)
     }
 
@@ -127,14 +118,13 @@ object SimApp extends App {
       (1 + b2) * p * r / rem
   }
 
-  // F-score
   def evaluateStrategy(bracket: Bracket,
                        history: Stream[(Set[Team], Leaderboard)],
-                      strategy: (Leaderboard, Leaderboard) => Set[Team]): Double = {
+                      predictor: TeamPredictor): Double = {
 
-    val (guessed, predicted, total) = history.sliding(2).foldLeft(0, 0, 0) { (acc, states) =>
+    val (guessed, predicted, total) = history.sliding(2, 1).foldLeft(0, 0, 0) { (acc, states) =>
       val ((_, prevLeaderboard), (teamsPlayed, currentLeaderboard)) = (states.head, states.last)
-      val prediction = strategy(prevLeaderboard, currentLeaderboard)
+      val prediction = strategy(prevLeaderboard, currentLeaderboard, predictor)
       val guessed = prediction.intersect(teamsPlayed)
       (acc._1 + guessed.size, acc._2 + prediction.size, acc._3 + teamsPlayed.size)
     }
@@ -146,8 +136,8 @@ object SimApp extends App {
 
   def evaluateStrategy(bracket: Bracket,
                        historyLength: Int,
-                       strategy: (Leaderboard, Leaderboard) => Set[Team]): Double =
-    evaluateStrategy(bracket, history(bracket, historyLength), strategy)
+                       predictor: TeamPredictor): Double =
+    evaluateStrategy(bracket, history(bracket, historyLength), predictor)
 
   def diff(previousLeaderboard: Leaderboard, currentLeaderboard: Leaderboard)
     : List[(LeaderboardRow, LeaderboardRow)] = {
@@ -166,8 +156,6 @@ object SimApp extends App {
     changed.toList
   }
 
-  type Diff = (LeaderboardRow, LeaderboardRow) // previous, current
-
   def bucket(diffs: Seq[Diff]): Set[Set[Diff]] = {
     val (losers, winners) = diffs.partition { case (prev, curr) => prev.rating < curr.rating }
     val (allianceL, hordeL) = losers.partition { case (prev, curr) => curr.characterInfo.faction == Alliance }
@@ -175,64 +163,31 @@ object SimApp extends App {
     Seq(allianceL, hordeL, allianceW, hordeW).map(_.toSet).toSet
   }
 
-  def pickRandom(previousLeaderboard: Leaderboard, currentLeaderboard: Leaderboard): Set[Team] = {
-    val diffs = diff(previousLeaderboard, currentLeaderboard)
-    val buckets = bucket(diffs)
-    val bracket = previousLeaderboard.bracket
-
-    for {
-      bucket: Set[Diff] <- buckets
-      shuffled = rng.shuffle(bucket.toList)
-      teams = shuffled.sliding(bracket.size, bracket.size)
-      team: Seq[Diff] <- teams
-      chars = team.map { case (prev, curr) => curr.characterInfo }
-    } yield Team(bracket, chars)
-  }
-
-  def sqrDist(v1: Vector[Double], v2: Vector[Double]): Double =
-    v1.zip(v2).map { case (l, r) => (l-r) * (l-r) }.sum
-
-  def groupPopular(matrix: Map[CharacterInfo, Vector[Double]], bracket: Bracket): Set[Team] = {
-    val size = bracket.size
-    val entries: Set[(CharacterInfo, Vector[Double])] = rng.shuffle(matrix.toSet)
-
-    val (_, resultTeams) = (0 until entries.size by size).foldLeft(entries, Set[Team]()) { (acc, i) =>
-      val (entriesLeft, teams) = acc
-      val p = randomElement(entriesLeft)
-      val leftThisTurn = (0 until size-1).foldLeft(entriesLeft - p) { (left, j) =>
-        val closest = left.minBy { case (charInfo, v) => sqrDist(p._2, v) }
-        left - closest
-      }
-      val teamEntries: Set[(CharacterInfo, Vector[Double])] = entriesLeft -- leftThisTurn
-      val team = Team(bracket, teamEntries.map(_._1))
-      (leftThisTurn, teams + team)
+  def pickRandom = new TeamPredictor {
+    override def apply(bracket: Bracket, bucket: Set[Diff]): Set[Team] = {
+      val shuffled = rng.shuffle(bucket.toList)
+      val teams = shuffled.sliding(bracket.size, bracket.size)
+      (for {
+        team: Seq[Diff] <- teams
+        chars = team.map { case (prev, curr) => curr.characterInfo }
+      } yield Team(bracket, chars.toSet)).toSet
     }
-
-    resultTeams
   }
 
-  def pickPopular(previousLeaderboard: Leaderboard, currentLeaderboard: Leaderboard): Set[Team] = {
-    def metric(prevRow: LeaderboardRow, row: LeaderboardRow): Vector[Double] =
-      Vector(row.rating,
-        row.seasonWins, row.seasonLosses,
-        row.weeklyWins, row.weeklyLosses,
-        row.rating - prevRow.rating,
-        (row.rating - prevRow.rating).toDouble / row.rating)
-
+  def strategy(previousLeaderboard: Leaderboard,
+               currentLeaderboard: Leaderboard,
+               teamPredictor: TeamPredictor): Set[Team] = {
     val diffs = diff(previousLeaderboard, currentLeaderboard)
     val buckets = bucket(diffs)
     val bracket = previousLeaderboard.bracket
 
     for {
       bucket: Set[Diff] <- buckets if bucket.size > 0
-      matrix: Map[CharacterInfo, Vector[Double]] = bucket.map { case (prev, curr) =>
-        (curr.characterInfo, metric(prev, curr))
-      }.toMap
-      groups: Set[Team] = groupPopular(matrix, bracket)
-      team <- groups
+      team <- teamPredictor(bracket, bucket)
     } yield team
   }
 
-  val score = evaluateStrategy(Threes, 50, pickPopular _)
+  val popularityPredictor = new PopularityPredictor()
+  val score = evaluateStrategy(Threes, 50, popularityPredictor)
   println(score)
 }
