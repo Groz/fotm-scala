@@ -199,7 +199,7 @@ object SimApp extends App with RandomExtensions {
 
   val predictor = new VerifyingPredictor(2, new PopularityPredictor())
 //  val predictor = new RandomPredictor(rng)
-  val score = evaluateStrategy(Twos, 50, predictor)
+  val score = evaluateStrategy(Threes, 50, predictor)
   println(score)
 }
 
