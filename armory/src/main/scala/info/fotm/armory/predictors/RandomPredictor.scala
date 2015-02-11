@@ -1,7 +1,8 @@
-package info.fotm.armory
+package info.fotm.armory.predictors
 
 import info.fotm.armory.Common.Diff
 import info.fotm.armory.models.{Bracket, Team}
+import info.fotm.armory.{RandomExtensions, TeamPredictor}
 
 class RandomPredictor extends TeamPredictor with RandomExtensions {
   val seed = 1337

@@ -51,4 +51,4 @@ project/plugins/project/
 .worksheet
 .target
 
-application.conf
+armory/application.conf

@@ -47,4 +47,11 @@ class SimSpec extends FlatSpec with Matchers {
     fScore(1, 1, 1) should equal (1)
   }
 
+  "Metrics sqrDist" should "output correct values" in {
+    Metrics.dist2(Vector(0, 0), Vector(1, 0)) should equal(1)
+    Metrics.dist2(Vector(0, 0), Vector(0, 1)) should equal(1)
+    Metrics.dist2(Vector(1, 0), Vector(0, 1)) should equal(2)
+    Metrics.dist2(Vector(1, 1, 2), Vector(-1, 3, 0)) should equal(12)
+  }
+
 }

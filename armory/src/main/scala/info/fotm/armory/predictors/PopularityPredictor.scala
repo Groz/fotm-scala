@@ -1,26 +1,12 @@
-package info.fotm.armory
+package info.fotm.armory.predictors
 
 import info.fotm.armory.models._
-import Common._
+import info.fotm.armory.{Metrics, RandomExtensions}
 
-class PopularityPredictor extends TeamPredictor with RandomExtensions {
+class PopularityPredictor extends ClusteringPredictorBase with RandomExtensions {
   val seed = 1337
 
-  override def apply(bracket: Bracket, diffs: Set[Diff]): Set[Team] = {
-    val matrix: Map[CharacterInfo, Vector[Double]] = diffs.map { case (prev, curr) =>
-      (curr.characterInfo, metric(prev, curr))
-    }.toMap
-    groupPopular(matrix, bracket)
-  }
-
-  def metric(prevRow: LeaderboardRow, row: LeaderboardRow): Vector[Double] =
-    Vector(//row.rating,
-      row.seasonWins, row.seasonLosses,
-      row.weeklyWins, row.weeklyLosses,
-      row.rating - prevRow.rating,
-      (row.rating - prevRow.rating).toDouble / prevRow.rating)
-
-  def groupPopular(matrix: Map[CharacterInfo, Vector[Double]], bracket: Bracket): Set[Team] = {
+  def cluster(matrix: Map[CharacterInfo, Vector[Double]], bracket: Bracket): Set[Team] = {
     val size = bracket.size
     val entries: Set[(CharacterInfo, Vector[Double])] = rng.shuffle(matrix.toSet)
 
@@ -31,7 +17,7 @@ class PopularityPredictor extends TeamPredictor with RandomExtensions {
         val (leftThisTurn, currentTeam) = (0 until size-1).foldLeft(entriesLeft - p, Set(p)) { (acc, j) =>
           val (left, team) = acc
           val closest = left.minBy { case (charInfo, v) =>
-            team.map(alreadyIn => Metrics.sqrDist(alreadyIn._2, v)).sum
+            team.map(alreadyIn => Metrics.dist2(alreadyIn._2, v)).sum
           }
           (left - closest, team + closest)
         }

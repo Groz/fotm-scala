@@ -1,5 +1,6 @@
 package info.fotm.armory
 
+import info.fotm.armory.predictors._
 import models._
 import info.fotm.armory.models.{CharacterInfo, Bracket}
 import Common._
@@ -65,7 +66,7 @@ object SimApp extends App with RandomExtensions {
   }
 
   object TeamInfo {
-    def apply(team: Team): TeamInfo = TeamInfo(team, 3 + rng.nextInt(10))
+    def apply(team: Team): TeamInfo = TeamInfo(team, 5 + rng.nextInt(20))
   }
 
 
@@ -85,16 +86,16 @@ object SimApp extends App with RandomExtensions {
      */
 
     val allChars: Set[CharacterInfo] = (0 until 4000).map(_ => createRandomCharacter).toSet
-    val nPlayersUpdatedPerTurn = 120
-    val nTeamsPlayingPerTurn = nPlayersUpdatedPerTurn / bracket.size
+    val nHistoryTeamsPerTurn = 1200 / bracket.size
+    val nRegularTeamsPerTurn = 120 / bracket.size
 
     var i = 0
 
-    def genHistory(previousTeams: Set[TeamInfo], previousStandings: Standings): Stream[(Set[Team], Standings)] = {
+    def genHistory(previousTeams: Set[TeamInfo], previousStandings: Standings, nTeamsTurn: Int): Stream[(Set[Team], Standings)] = {
       // fill up currentTeams until it's equal to nTeamsPlayingPerTurn
       val takenChars: Set[CharacterInfo] = previousTeams.flatMap(_.team.chars)
       val freeChars: Vector[CharacterInfo] = rng.shuffle((allChars -- takenChars).toVector)
-      val nToFill = nTeamsPlayingPerTurn - previousTeams.size
+      val nToFill = nTeamsTurn - previousTeams.size
 
       val currentTeams = previousTeams ++
         freeChars
@@ -115,17 +116,17 @@ object SimApp extends App with RandomExtensions {
       i += 1
       println(s"History iteration: $i")
 
-      (currentTeams.map(_.team), currentStandings) #:: genHistory(nextTeams, currentStandings)
+      (currentTeams.map(_.team), currentStandings) #:: genHistory(nextTeams, currentStandings, nTeamsTurn)
     }
 
     val initialStandings: Standings = allChars.map { (_, CharacterStats(1500, 0, 0)) }.toMap
 
     println("Preparing history data...")
-    val (currentTeams, currentStandings) = genHistory(Set(), initialStandings).take(250).last
+    val (_, currentStandings) = genHistory(Set(), initialStandings, nHistoryTeamsPerTurn).take(500).last
     println(toLeaderboard(currentStandings, bracket))
     println("Data ready.")
 
-    genHistory(Set(), initialStandings).map { case (teamsPlayed, standings) =>
+    genHistory(Set(), currentStandings, nRegularTeamsPerTurn).map { case (teamsPlayed, standings) =>
       (teamsPlayed, toLeaderboard(standings, bracket))
     }.take(length)
   }
@@ -197,10 +198,13 @@ object SimApp extends App with RandomExtensions {
     } yield team
   }
 
-  val predictor = new VerifyingPredictor(2, new PopularityPredictor())
-//  val predictor = new RandomPredictor(rng)
-  val score = evaluateStrategy(Threes, 50, predictor)
-  println(score)
+  //val predictor = new PopularityPredictor with VerifyingPredictor
+  val predictor = new SimpleClusteringPredictor
+  //val predictor = new ClusteringPlusPlusPredictor with VerifyingPredictor
+  //val predictor = new ClusteringPredictor
+
+  val score = evaluateStrategy(Threes, 100, predictor)
+  println(predictor.getClass(), score)
 }
 
 
