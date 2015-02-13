@@ -9,7 +9,7 @@ import org.json4s._, org.json4s.native.JsonMethods._
 
 class LoaderSpec extends FlatSpec with Matchers with ScalaFutures {
 
-  val apiKey = new Settings(ConfigFactory.load()).apiKey
+  val apiKey = Settings.apiKey
 
 
   "Loader" should "generate correct url for 2v2 leaderboards" in {

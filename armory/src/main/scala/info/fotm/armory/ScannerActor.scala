@@ -32,8 +32,7 @@ class MinerActor(val bracket: Bracket) extends Actor {
 }
 
 object MainApp extends App {
-  val settings = new Settings(ConfigFactory.load())
-  val loader = new ArmoryLoader(settings.apiKey, US)
+  val loader = new ArmoryLoader(Settings.apiKey, US)
 
   val system = ActorSystem("the-actor-system")
   val bracket = Twos
@@ -54,9 +53,4 @@ object MainApp extends App {
   */
 }
 
-class Settings(config: Config) {
-  config.checkValid(ConfigFactory.defaultReference())
 
-  // non-lazy fields, we want all exceptions at construct time
-  val apiKey = config.getString("keys.apiKey")
-}
