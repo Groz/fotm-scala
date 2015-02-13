@@ -7,22 +7,22 @@ import org.scalatest._
 
 class SimSpec extends FlatSpec with Matchers {
 
-  "calcRatingChange" should "output 16 for equal teams" in {
-    calcRatingChange(1600, 1600) should equal (16)
+  "play" should "output 16 for equal teams" in {
+    List((16, -16), (-16, 16)) should contain (play(1600, 1600))
   }
 
-  it should "output 20 for 1500 and 1580" in {
-    calcRatingChange(1500, 1580) should equal (20)
+  it should "output 20 or 12 for 1500 and 1580" in {
+    List((20, -20), (-12, 12)) should contain (play(1500, 1580))
   }
 
-  it should "output 12 for 1580 and 1500" in {
-    calcRatingChange(1580, 1500) should equal (12)
+  it should "output 20 for 1580 and 1500" in {
+    List((12, -12), (-20, 20)) should contain (play(1580, 1500))
   }
 
   "updateStandings" should "correctly update standings for teams" in {
     val teamA = createRandomTeam(Twos)
     val teamB = createRandomTeam(Twos)
-    val stats = CharacterStats(1500, 0, 0)
+    val stats = CharacterStats(1500, 0, 0, 0, 0)
 
     val standings: Map[CharacterInfo, CharacterStats] =
       { for { p <- teamA.chars ++ teamB.chars } yield (p, stats) }.toMap
@@ -32,9 +32,9 @@ class SimSpec extends FlatSpec with Matchers {
     updated.foreach { case (info, stats) =>
         stats.rating should not equal (1500)
         if (stats.rating > 1500) {
-          stats should equal (CharacterStats(1516, 1, 0))
+          stats should equal (CharacterStats(1516, 1, 0, 1, 0))
         } else {
-          stats should equal (CharacterStats(1484, 0, 1))
+          stats should equal (CharacterStats(1484, 0, 1, 0, 1))
         }
     }
   }

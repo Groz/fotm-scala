@@ -28,9 +28,7 @@ class PopularityPredictor extends ClusteringPredictorBase with RandomExtensions 
       resultTeams
     }
 
-    println("Bucket:")
-
-    (0 until 30)
+    (0 until 10)
       .flatMap(_ => calc)
       .groupBy(identity).mapValues(_.size).toSeq
       .sortBy { case (team, count) => -count }

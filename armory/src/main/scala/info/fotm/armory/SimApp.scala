@@ -8,7 +8,7 @@ import Common._
 object SimApp extends App with RandomExtensions {
   val seed = 1337
 
-  case class CharacterStats(rating: Int, wins: Int, losses: Int)
+  case class CharacterStats(rating: Int, wins: Int, losses: Int, weeklyWins: Int, weeklyLosses: Int)
 
   lazy val fakeRealm = Realm(10, "Fake Realm", "fakerealm")
 
@@ -27,25 +27,37 @@ object SimApp extends App with RandomExtensions {
   def change(standings: Standings, char: CharacterInfo, rating: Int): Standings = {
     val stats = standings(char)
 
+    val (w, l) = if (rating > 0) (1, 0) else (0, 1)
+
     val newStats = CharacterStats(stats.rating + rating,
-      stats.wins + (if (rating > 0) 1 else 0),
-      stats.losses + (if (rating < 0) 1 else 0))
+      stats.wins + w,
+      stats.losses + l,
+      stats.weeklyWins + w,
+      stats.weeklyLosses + l)
 
     standings.updated(char, newStats)
   }
 
-  def calcRatingChange(winnerRating: Double, loserRating: Double): Int = {
-    val chance = 1.0 / (1.0 + Math.pow(10, (loserRating - winnerRating)/400.0))
+  def play(teamA: Double, teamB: Double): (Int, Int) = {
+    val chanceA = 1.0 / (1.0 + Math.pow(10, (teamB - teamA)/400.0))
+    val chanceB = 1 - chanceA
     val k = 32
-    Math.round(k * (1 - chance)).toInt
+
+    if (rng.nextDouble < chanceA) {
+      val change = Math.round(k * (1 - chanceA)).toInt
+      (change, -change)
+    } else {
+      val change = Math.round(k * (1 - chanceB)).toInt
+      (-change, change)
+    }
   }
 
   def updateStandings(standings: Standings, teamA: Team, teamB: Team): Standings = {
     def teamRating(team: Team): Double = team.chars.map(standings(_).rating).sum.toDouble / team.chars.size
-    val ratingChange = calcRatingChange(teamRating(teamA), teamRating(teamB))
+    val (ratingChangeA, ratingChangeB) = play(teamRating(teamA), teamRating(teamB))
 
-    val afterA = teamA.chars.foldLeft(standings) { change(_, _, ratingChange) }
-    val afterB = teamB.chars.foldLeft(afterA) { change(_, _, -ratingChange) }
+    val afterA = teamA.chars.foldLeft(standings) { change(_, _, ratingChangeA) }
+    val afterB = teamB.chars.foldLeft(afterA) { change(_, _, ratingChangeB) }
     afterB
   }
 
@@ -69,7 +81,6 @@ object SimApp extends App with RandomExtensions {
     def apply(team: Team): TeamInfo = TeamInfo(team, 5 + rng.nextInt(20))
   }
 
-
   def history(bracket: Bracket, length: Int): Stream[(Set[Team], Leaderboard)] = {
     /*
     Output: stream of pairs: teams played this turn - Set[Team], leaderboard after the turn - Leaderboard
@@ -91,18 +102,35 @@ object SimApp extends App with RandomExtensions {
 
     var i = 0
 
-    def genHistory(previousTeams: Set[TeamInfo], previousStandings: Standings, nTeamsTurn: Int): Stream[(Set[Team], Standings)] = {
+    def genHistory(previousTeams: Set[TeamInfo],
+                   previousStandings: Standings,
+                   nTeamsTurn: Int): Stream[(Set[Team], Standings)] = {
       // fill up currentTeams until it's equal to nTeamsPlayingPerTurn
       val takenChars: Set[CharacterInfo] = previousTeams.flatMap(_.team.chars)
       val freeChars: Vector[CharacterInfo] = rng.shuffle((allChars -- takenChars).toVector)
       val nToFill = nTeamsTurn - previousTeams.size
 
-      val currentTeams = previousTeams ++
-        freeChars
-        .sliding(bracket.size, bracket.size) // TODO: implement better strategy of finding a teammate
-        .take(nToFill)
+      // TODO: update weekly stats
+//      val previousStandings =
+//        if (i % 30 == 0) {
+//          for {
+//            (k: CharacterInfo, v: CharacterStats) <- ps
+//          } yield (k, v.copy(weeklyWins = 0, weeklyLosses = 0))
+//        } else ps
+
+      val newTeams = freeChars
+        .take(nToFill * bracket.size) // TODO: reverse lines back
+        .sortBy(charInfo => {
+          val currentRating = previousStandings(charInfo).rating
+          val random = Math.sin((currentRating + charInfo.name.hashCode)/currentRating.toDouble)
+          val result = currentRating + random * 50
+          -result
+        })
+        .sliding(bracket.size, bracket.size)
         .map(chars => TeamInfo(Team(bracket, chars.toSet)))
         .toSet
+
+      val currentTeams = previousTeams ++ newTeams
 
       val playingTeams = rng.shuffle(currentTeams.toVector)
 
@@ -119,7 +147,7 @@ object SimApp extends App with RandomExtensions {
       (currentTeams.map(_.team), currentStandings) #:: genHistory(nextTeams, currentStandings, nTeamsTurn)
     }
 
-    val initialStandings: Standings = allChars.map { (_, CharacterStats(1500, 0, 0)) }.toMap
+    val initialStandings: Standings = allChars.map { (_, CharacterStats(1500, 0, 0, 0, 0)) }.toMap
 
     println("Preparing history data...")
     val (_, currentStandings) = genHistory(Set(), initialStandings, nHistoryTeamsPerTurn).take(500).last
@@ -140,9 +168,17 @@ object SimApp extends App with RandomExtensions {
       (1 + b2) * p * r / rem
   }
 
+  case class StrategyRunResult(guessed: Int, predicted: Int, total: Int) {
+    def score(f: Double) = {
+      val p = guessed.toDouble / predicted
+      val r = guessed.toDouble / total
+      fScore(p, r, f)
+    }
+  }
+
   def evaluateStrategy(bracket: Bracket,
                        history: Stream[(Set[Team], Leaderboard)],
-                      predictor: TeamPredictor): Double = {
+                      predictor: TeamPredictor): StrategyRunResult = {
 
     val (guessed, predicted, total) = history.sliding(2, 1).foldLeft(0, 0, 0) { (acc, states) =>
       val ((_, prevLeaderboard), (teamsPlayed, currentLeaderboard)) = (states.head, states.last)
@@ -151,14 +187,12 @@ object SimApp extends App with RandomExtensions {
       (acc._1 + guessed.size, acc._2 + prediction.size, acc._3 + teamsPlayed.size)
     }
 
-    val p = guessed.toDouble / predicted
-    val r = guessed.toDouble / total
-    fScore(p, r, 0.5)
+    StrategyRunResult(guessed, predicted, total)
   }
 
   def evaluateStrategy(bracket: Bracket,
                        historyLength: Int,
-                       predictor: TeamPredictor): Double =
+                       predictor: TeamPredictor): StrategyRunResult =
     evaluateStrategy(bracket, history(bracket, historyLength), predictor)
 
   def diff(previousLeaderboard: Leaderboard, currentLeaderboard: Leaderboard)
@@ -198,14 +232,35 @@ object SimApp extends App with RandomExtensions {
     } yield team
   }
 
-  //val predictor = new PopularityPredictor with VerifyingPredictor
-  val predictor = new SimpleClusteringPredictor
-  //val predictor = new ClusteringPlusPlusPredictor with VerifyingPredictor
-  //val predictor = new ClusteringPredictor
+  val predictors = Map(
+//    "pop10          " -> new PopularityPredictor,
+//    "pop10+verify   " -> new PopularityPredictor with VerifyingPredictor,
+    "simple         " -> new SimpleClusteringPredictor,
+    "simple+verify  " -> new SimpleClusteringPredictor with VerifyingPredictor,
+    "cpp            " -> new ClusteringPlusPlusPredictor,
+    "cpp+verify     " -> new ClusteringPlusPlusPredictor with VerifyingPredictor,
+    "simple10       " -> new SimpleClusteringPredictor with PopPredictor,
+    "simple10+verify" -> new SimpleClusteringPredictor with PopPredictor with VerifyingPredictor,
+    "cpp10          " -> new ClusteringPlusPlusPredictor with PopPredictor,
+    "cpp10+verify   " -> new ClusteringPlusPlusPredictor with PopPredictor with VerifyingPredictor,
+    "simple+verify+10" -> new SimpleClusteringPredictor with VerifyingPredictor with PopPredictor,
+    "cpp10+verify+10" -> new ClusteringPlusPlusPredictor with VerifyingPredictor with PopPredictor,
+    "simple40+verify" -> new SimpleClusteringPredictor with PopPredictor with VerifyingPredictor {
+      override val iterations = 40
+    }
 
-  val score = evaluateStrategy(Threes, 100, predictor)
-  println(predictor.getClass(), score)
+  ).par
+
+  val b = Threes
+  val hist = history(b, 100)
+
+  val results = (for {
+    (name, predictor) <- predictors
+    rr: StrategyRunResult = evaluateStrategy(b, hist, predictor)
+    score = rr.score(0.5)
+  } yield (name, rr, score))
+    .toVector
+    .sortBy { case (name, rr, score) => -score }
+
+  results.foreach(println)
 }
-
-
-

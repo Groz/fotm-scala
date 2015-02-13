@@ -7,12 +7,16 @@ import info.fotm.armory.models.{Bracket, CharacterInfo, LeaderboardRow, Team}
 import scala.collection.immutable.IndexedSeq
 
 abstract class ClusteringPredictorBase extends TeamPredictor {
+  def sqr(x: Double) = x * x
   def metric(prevRow: LeaderboardRow, row: LeaderboardRow): Vector[Double] =
     Vector(//row.rating,
-      row.seasonWins, row.seasonLosses,
-      row.weeklyWins, row.weeklyLosses,
-      row.rating - prevRow.rating,
-      (row.rating - prevRow.rating).toDouble / prevRow.rating)
+      //row.seasonWins, row.seasonLosses,
+      //row.weeklyWins, row.weeklyLosses,
+      //row.rating - prevRow.rating
+      //, (row.rating - prevRow.rating).toDouble / prevRow.rating
+      sqr(row.rating - prevRow.rating)
+      , sqr(row.rating - prevRow.rating) / prevRow.rating
+    )
 
   protected def cluster(matrix: Map[CharacterInfo, Vector[Double]], bracket: Bracket): Set[Team]
 
