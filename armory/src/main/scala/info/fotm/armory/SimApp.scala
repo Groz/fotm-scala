@@ -54,6 +54,7 @@ object SimApp extends App with RandomExtensions {
 
   def updateStandings(standings: Standings, teamA: Team, teamB: Team): Standings = {
     def teamRating(team: Team): Double = team.chars.map(standings(_).rating).sum.toDouble / team.chars.size
+    // TODO: !!! calculate individual updates per player rating
     val (ratingChangeA, ratingChangeB) = play(teamRating(teamA), teamRating(teamB))
 
     val afterA = teamA.chars.foldLeft(standings) { change(_, _, ratingChangeA) }

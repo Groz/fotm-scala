@@ -16,6 +16,7 @@ abstract class ClusteringPredictorBase extends TeamPredictor {
       //, (row.rating - prevRow.rating).toDouble / prevRow.rating
       sqr(row.rating - prevRow.rating)
       , sqr(row.rating - prevRow.rating) / prevRow.rating
+      , sqr(row.rating - prevRow.rating) / row.rating
     )
 
   protected def cluster(matrix: Map[CharacterInfo, Vector[Double]], bracket: Bracket): Set[Team]
